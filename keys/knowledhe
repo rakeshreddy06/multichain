@@ -1,0 +1,1 @@
+ py .\keys\test3.py --party 0 --nr_of_parties 3

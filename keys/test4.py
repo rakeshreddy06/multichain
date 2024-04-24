@@ -1,7 +1,9 @@
 import argparse
 import asyncio
 from typing import List, Tuple
-
+import pandas as pd
+import numpy as np
+from collections import Counter
 from tno.mpc.communication import Pool
 
 from tno.mpc.protocols.distributed_keygen import DistributedPaillier
@@ -83,24 +85,44 @@ async def main(pool):
         distributed=True,
     )
     # Party 2
+    store_data = pd.read_csv(r'C:\Users\rakes\PycharmProjects\DPS-project\department_store.csv')
+
+    store_data['Product'] = store_data['Product'].apply(eval)
+    store_data = store_data['Product']
+    consolidated_list = []
+    for product_list in store_data:
+
+        for product in product_list:
+            consolidated_list.append(product.strip())
+
+    consolidated_list = np.array(consolidated_list)
+    product_counts = Counter(consolidated_list)
+    current_unique_products = dict(product_counts)
+    for key, value in current_unique_products.items():
+        current_unique_products[key] = distributed_paillier.encrypt(value)
 
     # The assumption here is that this code is placed inside an async method
-    ciphertext = await distributed_paillier.pool.recv("client_8888", msg_id="step1")  # receive the ciphertext from party 1
-    print(ciphertext)
-    ciphertext += 100  # add 100 to the ciphertext (value is now 142)
-    await distributed_paillier.pool.send("client_8890", ciphertext, msg_id="step2")  # send the updated ciphertext to party 3
+    unique_products = await distributed_paillier.pool.recv("client_8888",
+                                                           msg_id="step1")  # receive the ciphertext from party 1
+    for key, value in current_unique_products.items():
+        if key in unique_products:
+            unique_products[key] += value
+        else:
+            unique_products[key] = value
 
-    final_ciphertext = await distributed_paillier.pool.recv("", msg_id="step3")  # recieve the ciphertext from party 3
+    unique_products = {str(key): value for key, value in unique_products.items()}
+    await distributed_paillier.pool.send("client_8890", unique_products,
+                                         msg_id="step2")  # send the updated ciphertext to party 3
 
-    # all parties need to participate in the decryption protocol
-    plaintext = await distributed_paillier.decrypt(final_ciphertext)
-    assert plaintext == 426
+    final_ciphertext = await distributed_paillier.pool.recv("client_8890", msg_id="step3")  # recieve the ciphertext from party 3
 
-    # alternative decryption of which the shares (and result) are only obtained by party 2
-    # note: even though we do not receive the result, we are required to participate
-    plaintext = await distributed_paillier.decrypt(final_ciphertext, receivers=["self"])
-    print(plaintext)
-    assert plaintext == 426
+    decrypted_values = {}
+    for key, encrypted_value in final_ciphertext.items():
+        decrypted_value = await distributed_paillier.decrypt(encrypted_value)
+        decrypted_values[key] = decrypted_value
+
+    # Print the decrypted values
+    print(decrypted_values)
 
 
 distributed_paillier_scheme = loop.run_until_complete(main(pool))

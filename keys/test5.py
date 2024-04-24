@@ -1,4 +1,3 @@
-
 import argparse
 import asyncio
 from typing import List, Tuple
@@ -6,7 +5,9 @@ from typing import List, Tuple
 from tno.mpc.communication import Pool
 
 from tno.mpc.protocols.distributed_keygen import DistributedPaillier
-
+import pandas as pd
+import numpy as np
+from collections import Counter
 corruption_threshold = 1  # corruption threshold
 key_length = 128  # bit length of private key
 prime_thresh = 2000  # threshold for primality check
@@ -70,43 +71,61 @@ others = [
 server_port = base_port + party_number
 pool = setup_local_pool(server_port, others)
 
-
-
-
 loop = asyncio.get_event_loop()
 
+
 async def main(pool):
-   distributed_paillier = await DistributedPaillier.from_security_parameter(
-       pool,
-       corruption_threshold,
-       key_length,
-       prime_thresh,
-       correct_param_biprime,
-       stat_sec_shamir,
-       precision=8,
-       distributed=True,
-   )
-   # Party 3
+    distributed_paillier = await DistributedPaillier.from_security_parameter(
+        pool,
+        corruption_threshold,
+        key_length,
+        prime_thresh,
+        correct_param_biprime,
+        stat_sec_shamir,
+        precision=8,
+        distributed=True,
+    )
+    # Party 3
+    # Party 2
+    store_data = pd.read_csv(r'C:\Users\rakes\PycharmProjects\DPS-project\pharmacy.csv')
 
-   # The assumption here is that this code is placed inside an async method
-   final_ciphertext = await distributed_paillier.pool.recv("client_8889",
-                                                           msg_id="step2")  # receive the ciphertext from party 1
+    store_data['Product'] = store_data['Product'].apply(eval)
+    store_data = store_data['Product']
+    consolidated_list = []
+    for product_list in store_data:
 
-   final_ciphertext *= 3  # multiply the ciphertext by 3 (value is now 426)
-   # send the ciphertext to multiple parties (we cannot use `pool.send` now).
-   await distributed_paillier.pool.broadcast(final_ciphertext, msg_id="step3",
-                                             handler_names=["client_8888",
-                                                            "client_8889"])  # receivers=None does the same
+        for product in product_list:
+            consolidated_list.append(product.strip())
 
-   # all parties need to participate in the decryption protocol
-   plaintext = await distributed_paillier.decrypt(final_ciphertext)
-   print(plaintext)
-   assert plaintext == 426
+    consolidated_list = np.array(consolidated_list)
+    product_counts = Counter(consolidated_list)
+    current_unique_products = dict(product_counts)
+    for key, value in current_unique_products.items():
+        current_unique_products[key] = distributed_paillier.encrypt(value)
+
+    # The assumption here is that this code is placed inside an async method
+    unique_products = await distributed_paillier.pool.recv("client_8889",
+                                                            msg_id="step2")  # receive the ciphertext from party 1
+
+    for key, value in current_unique_products.items():
+        if key in unique_products:
+            unique_products[key] += value
+        else:
+            unique_products[key] = value
 
 
-   # alternative decryption of which the shares (and result) are only obtained by party 2
-   # note: even though we do not receive the result, we are required to participate
-   await distributed_paillier.decrypt(final_ciphertext, receivers=["client_8889"])
+
+    # send the ciphertext to multiple parties (we cannot use `pool.send` now).
+    await distributed_paillier.pool.broadcast(unique_products, msg_id="step3",
+                                              handler_names=["client_8888",
+                                                             "client_8889"])  # receivers=None does the same
+
+    decrypted_values = {}
+    for key, encrypted_value in unique_products.items():
+        decrypted_value = await distributed_paillier.decrypt(encrypted_value)
+        decrypted_values[key] = decrypted_value
+
+    print(decrypted_values)
 
 
 distributed_paillier_scheme = loop.run_until_complete(main(pool))
