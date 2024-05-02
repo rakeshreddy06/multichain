@@ -1,35 +1,30 @@
 import argparse
 import asyncio
 from typing import List, Tuple
+from tno.mpc.communication import Pool
+from tno.mpc.protocols.distributed_keygen import DistributedPaillier
 import pandas as pd
 import numpy as np
 from collections import Counter
-from tno.mpc.communication import Pool
 
-from tno.mpc.protocols.distributed_keygen import DistributedPaillier
-
-corruption_threshold = 1  # corruption threshold
-key_length = 128  # bit length of private key
-prime_thresh = 2000  # threshold for primality check
-correct_param_biprime = 40  # correctness parameter for biprimality test
+corruption_threshold = 1
+key_length = 128
+prime_thresh = 2000
+correct_param_biprime = 40
 stat_sec_shamir = (
-    40  # statistical security parameter for secret sharing over the integers
+    40
 )
-
 
 def setup_local_pool(server_port: int, others: List[Tuple[str, int]]) -> Pool:
     pool = Pool()
     pool.add_http_server(server_port)
     for client_ip, client_port in others:
+        print(f"client_{client_port}", client_ip, client_port)
         pool.add_http_client(
             f"client_{client_port}", client_ip, client_port
         )
     return pool
 
-
-# REGION EXAMPLE SETUP
-# this region contains code that is used for the toy example, but can be deleted when the `others`
-# variable underneath the region is set to the proper values.
 
 parser = argparse.ArgumentParser(description="Set the parameters to run the protocol.")
 
@@ -58,15 +53,12 @@ party_number = args.party
 nr_of_parties = args.nr_of_parties
 
 base_port = args.base_port
-# ENDREGION
 
-# Change this to the ips and server ports of the other machines
 others = [
     ("localhost", base_port + i) for i in range(nr_of_parties) if i != party_number
 ]
 
-# Change this to the port you want this machine to listen on (note that this should correspond
-# to the port of this party in the scripts on the other machines)
+
 server_port = base_port + party_number
 pool = setup_local_pool(server_port, others)
 
@@ -84,8 +76,8 @@ async def main(pool):
         precision=8,
         distributed=True,
     )
-    # Party 2
-    store_data = pd.read_csv(r'C:\Users\rakes\PycharmProjects\DPS-project\department_store.csv')
+
+    store_data = pd.read_csv(r'C:\Users\rakes\PycharmProjects\DPS-project\pharmacy.csv')
 
     store_data['Product'] = store_data['Product'].apply(eval)
     store_data = store_data['Product']
@@ -101,28 +93,28 @@ async def main(pool):
     for key, value in current_unique_products.items():
         current_unique_products[key] = distributed_paillier.encrypt(value)
 
-    # The assumption here is that this code is placed inside an async method
-    unique_products = await distributed_paillier.pool.recv("client_8888",
-                                                           msg_id="step1")  # receive the ciphertext from party 1
+
+
+    unique_products = await distributed_paillier.pool.recv("client_8889",
+                                                           msg_id="step2")  # receive the ciphertext from party 1
+
     for key, value in current_unique_products.items():
         if key in unique_products:
             unique_products[key] += value
         else:
             unique_products[key] = value
 
-    unique_products = {str(key): value for key, value in unique_products.items()}
-    await distributed_paillier.pool.send("client_8890", unique_products,
-                                         msg_id="step2")  # send the updated ciphertext to party 3
 
-    final_ciphertext = await distributed_paillier.pool.recv("client_8890", msg_id="step3")  # recieve the ciphertext from party 3
+    await distributed_paillier.pool.broadcast(unique_products, msg_id="step3",
+                                              handler_names=["client_8888",
+                                                             "client_8889"])
 
     decrypted_values = {}
-    for key, encrypted_value in final_ciphertext.items():
+    for key, encrypted_value in unique_products.items():
         decrypted_value = await distributed_paillier.decrypt(encrypted_value)
         decrypted_values[key] = decrypted_value
 
-    # Print the decrypted values
-    print(decrypted_values)
+    print((sorted(decrypted_values.items())))
 
 
 distributed_paillier_scheme = loop.run_until_complete(main(pool))

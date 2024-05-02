@@ -1,0 +1,5 @@
+ py .\keys\test3.py --party 0 --nr_of_parties 3
+ py .\keys\test4.py --party 1 --nr_of_parties 3
+  py .\keys\test5.py --party 2 --nr_of_parties 3
+
+
