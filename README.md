@@ -34,9 +34,7 @@ To run the SMPC analysis, execute the following commands in three different term
    py .\SourceCode\party3.py --party 2 --nr_of_parties 3
    ```
 
-## How It Works
 
-(Provide a brief explanation of the SMPC process and how the analysis is performed)
 
 ## Contributing
 
